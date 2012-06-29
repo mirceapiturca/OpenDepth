@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<title>OpenDepth</title>
+<link rel="stylesheet" href="css/style.css" />
+
+</head>
+<body>
+
+	 <header>
+     	<div class="header"><a href="https://twitter.com/odepth">Twitter</a> <a href="https://github.com/mirceapiturca/OpenDepth/">GitHub</a> <a id="hide" href="#">Hide</a></div>
+        <h1>OpenDepth</h1>
+        <p>Extending the web</p>
+    </header>
+    
+    <div id="options" class="panel">
+    
+        <p id="kinectStatus">Status</p>
+        
+        <ul class="group tools">
+            <li> <button id="pointColud" type="button" disabled="disabled">Get Point Cloud</button></li>
+            <li> <button id="skeleton" type="button" disabled="disabled" >Stream Skeleton</button></li>
+            <li>
+            	<h2 class="btn">Requirements:</h2>
+            	<p>Windows 7, Kinect SDK 1.5, Modern browser with webGl and HTML5 WebSockets. Please check out our <a href="https://github.com/mirceapiturca/OpenDepth/">instalation guide</a></p>
+            </li>
+            <li>
+            	<h2 class="btn">About</h2>
+                <p>Our goal is to bring 3D camera RGBD data into the browser</p>,
+                <p>Made with pride by <a href="https://twitter.com/KatePfau">Ecaterina Paun</a>,
+                     <a href="https://twitter.com/alpenzoo">Narcis Paun</a> and 
+                     <a href="https://twitter.com/mirceadesign">Mircea Piturca</a>. 
+                     Follow the development on <a href="https://twitter.com/odepth">Twitter</a>. 
+                     Code on <a href="https://github.com/mirceapiturca/OpenDepth/">GitHub.</a></p>
+             </li>
+        </ul>
+        
+        <article class="demos">
+        <ul>
+            <li>
+                <h3>Demos</h3>
+                <p>You can run these short demos without a Kinect camera</p>
+            </li>
+            <li>
+            	<h2 class="btn">Point Cloud</h2>
+                <p>A snapshot taken with Kinect and rendered in the browser</p>
+                <button id="demoPointCloud" type="button" disabled="disabled">Launch</button>
+            </li>
+            <li>
+            	<h2 class="btn">Skeleton</h2>
+                <p>Skeleton tracking with quaternion joint rotation</p>
+                <button id="demoSkeleton" type="button" disabled="disabled">Launch</button>
+             </li>
+        </ul>
+        </article>
+    </div>
+
+<script src="js/Three-49dev.js"></script>
+<script src="js/Stats.js"></script>
+<script src="js/Detector.js"></script>
+<script src="js/RequestAnimationFrame.js"></script>
+
+<script type="x-shader/x-vertex" id="vertexshader">
+	uniform float amplitude;
+	attribute float size;
+	attribute vec3 customColor;
+
+	varying vec3 vColor;
+
+	void main() {
+		vColor = customColor;
+		vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+		gl_PointSize = 1.0;
+		gl_Position = projectionMatrix * mvPosition;
+	}
+</script>
+
+<script type="x-shader/x-fragment" id="fragmentshader">
+	uniform vec3 color;
+	uniform sampler2D texture;
+
+	varying vec3 vColor;
+
+	void main() {
+		gl_FragColor = vec4( color * vColor, 1.0 );
+		gl_FragColor = gl_FragColor * texture2D( texture, gl_PointCoord );
+	}
+</script>
+		
+<script>
+
+	if (!Detector.webgl) Detector.addGetWebGLMessage();
+	
+	var container;
+	var scene, camera, renderer, pojector, controls, stats;
+	var geometry, uniforms, colorAttributes, colorShaderMaterial;
+	var pointcloud, skeletons, skeleton, playback = false;
+	
+	var inc = 200;
+	var socket, _status;
+
+	var WIDTH = window.innerWidth,
+		HEIGHT = window.innerHeight;
+	
+	var pointCloudRange = 0;
+	
+	init();
+	animate();
+	
+	function init() {
+	
+		container = document.createElement('div');
+		document.body.appendChild(container);
+		
+		scene = new THREE.Scene();
+		pointcloud = new THREE.Object3D();
+		skeletons = new THREE.Object3D();
+	
+		loadSocket();
+		createSkeleton();
+
+		// Camera
+		camera = new THREE.PerspectiveCamera(70, WIDTH / HEIGHT, 1, 10000);
+		camera.position.z = -500;
+		scene.add(camera);
+		
+		// Trackball Controls
+		controls = new THREE.TrackballControls(camera);
+		controls.rotateSpeed = 1.0;
+		controls.zoomSpeed = 1.2;
+		controls.panSpeed = 0.8;
+		controls.noZoom = false;
+		controls.noPan = false;
+		controls.staticMoving = true;
+		controls.dynamicDampingFactor = 0.3;
+		controls.keys = [65, 83, 68];
+		controls.addEventListener('change', render);
+		
+		// Lights
+		scene.add(new THREE.AmbientLight(0xf0f0f0));
+		
+		// Plane
+		var planeGeometry = new THREE.PlaneGeometry(2000, 2000, 20, 20);
+		var planeMaterials = [
+			new THREE.MeshBasicMaterial({ color: 0x405040, wireframe: true, opacity: 0.2, transparent: true })
+		];
+				
+		var plane = THREE.SceneUtils.createMultiMaterialObject(planeGeometry, planeMaterials);
+		plane.position.y = -500;
+		scene.add(plane);
+
+		// Axis
+		var axis = new THREE.AxisHelper();
+		axis.position.set(-500, -500, 500);
+		scene.add(axis);
+	
+		// Render
+		projector = new THREE.Projector();
+		renderer = new THREE.WebGLRenderer();
+		renderer.setSize(WIDTH, HEIGHT);
+		renderer.setFaceCulling(0);
+		container.appendChild(renderer.domElement);
+	
+		// Stats
+		stats = new Stats();
+		stats.domElement.style.position = 'absolute';
+		stats.domElement.style.top = '0px';
+		container.appendChild(stats.domElement);
+		document.addEventListener( 'mousewheel', onScrollWheel, false );
+		
+		uniforms = { amplitude: { type: "f", value: 1.0 },
+					color: { type: "c", value: new THREE.Color(0xffffff) },
+					texture: { type: "t", value: 0, texture: THREE.ImageUtils.loadTexture("css/img/solid.png") }
+		};
+
+	}
+	
+	function onScrollWheel(e) {
+		e.preventDefault();
+		var evt = window.event || e //equalize event object
+		var delta = evt.detail ? evt.detail * (-120) : evt.wheelDelta // check for detail first so Opera uses that instead of wheelDelta
+		delta = delta / (-3 * 5); //the minus on this number is for going the opposite way
+		camera.position.z += delta
+	}
+	
+	function createSkeleton(kinect) {
+
+		var joints = ['HipCenter', 'Spine', 'ShoulderCenter', 'Head', 'ShoulderLeft', 'ElbowLeft', 'WristLeft', 'HandLeft', 'ShoulderRight', 'ElbowRight',
+					'WristRight', 'HandRight', 'HipLeft', 'KneeLeft', 'AnkleLeft', 'FootLeft', 'HipRight', 'KneeRight', 'AnkleRight', 'FootRight'];
+
+		var s = 0,
+			sl = 2;
+
+		for (; s < sl; s += 1) {
+
+			var j = 0,
+				jl = joints.length;
+
+			skeleton = new THREE.Object3D();
+
+			for (; j < jl; j += 1) {
+
+				var joint = joints[j];
+				var geometry = new THREE.CubeGeometry(20, 20, 20);
+				var object = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+					color: s === 1 ? 0xff0000 : 0x50308F
+				}))
+
+				object.position = { x: 0, y: 0, z: -1000 };
+				object.name = joint;
+				object.type = 'skeleton' + s;
+				object.useQuaternion = true;
+
+				skeleton.add(object);
+			}
+
+			skeletons.add(skeleton);
+		}
+		
+		scene.add(skeletons);
+	}
+	
+	function renderFromFile() {
+		console.time('Point Cloud Processing');
+		var lastX = lastY = lastZ = 0;
+
+		var j = 0,
+			jl = pcd.length
+
+		colorAttributes = {
+			size: { type: 'f', value: [] },
+			customColor: { type: 'c', value: [] }
+		};
+
+		colorShaderMaterial = new THREE.ShaderMaterial({
+			uniforms: uniforms,
+			attributes: colorAttributes,
+			vertexShader: document.getElementById('vertexshader').textContent,
+			fragmentShader: document.getElementById('fragmentshader').textContent,
+			transparent: true,
+			sizeAttenuation: false,
+		});
+
+		var geometry = new THREE.Geometry();
+
+		for (; j < jl; j += 1) {
+
+			var data = pcd[j];
+
+			var thisX = lastX - (data[0] || 0),
+				thisY = lastY - (data[1] || 0),
+				thisZ = lastZ - (data[2] || 0);
+
+			var vector = new THREE.Vector3(thisX, thisY, thisZ);
+			geometry.vertices.push(new THREE.Vertex(vector));
+
+			colorAttributes.customColor.value[j] = new THREE.Color('0x' + data[3]);
+
+			lastX = thisX;
+			lastY = thisY;
+			lastZ = thisZ;
+		}
+
+		particles = new THREE.ParticleSystem(geometry, colorShaderMaterial);
+		pointcloud.add(particles);
+		scene.add(pointcloud);
+		console.timeEnd('Point Cloud Processing');
+	}
+	
+	function renderPointCloud(data) {
+	
+		var geometry = new THREE.Geometry();
+		
+		colorAttributes = {
+			size: { type: 'f', value: [] },
+			customColor: { type: 'c', value: [] }
+		};
+
+		colorShaderMaterial = new THREE.ShaderMaterial({
+			uniforms: uniforms,
+			attributes: colorAttributes,
+			vertexShader: document.getElementById('vertexshader').textContent,
+			fragmentShader: document.getElementById('fragmentshader').textContent,
+			transparent: true,
+			sizeAttenuation: false,
+		});
+
+		var p = 0,
+			pl = data.length;
+
+		for (; p < pl; p += 1) {
+
+			var thisBlock = data[ p ];
+			var vector = new THREE.Vector3( thisBlock[ 0 ] * inc, thisBlock[ 1 ] * inc, thisBlock[ 2 ] * inc );
+			geometry.vertices.push( new THREE.Vertex(vector) );
+
+			colorAttributes.customColor.value[ p ] = new THREE.Color( '0x' + thisBlock[ 3 ] );
+			colorAttributes.size.value[ p ] = 1;
+		}
+
+		particles = new THREE.ParticleSystem( geometry, colorShaderMaterial );
+		pointcloud.add( particles );
+		scene.add( pointcloud );
+	}
+	
+	function loadSocket() {
+
+		var kinectStatus = document.getElementById('kinectStatus');
+		_status = 'SOCKET_CLOSED';
+
+		if (!window.WebSocket) {
+			console.log('Your browser does not support web sockets!')
+			kinectStatus.textContent = 'Your browser does not support web sockets!'
+			return;
+		}
+
+		kinectStatus.innerHTML = 'Connecting to Kinect server...<img src="css/img/spinner.gif" alt="Connecting" />'
+		console.log('Connecting to server...')
+
+		// Initialize a new web socket.
+		socket = new WebSocket("ws://192.168.1.105:8181/");
+
+		// Connection established.
+		socket.onopen = function () {
+			_status = 'SOCKET_OPEN';
+			kinectStatus.textContent = 'Connection successful.'
+			document.getElementById('pointColud').removeAttribute('disabled');
+			document.getElementById('skeleton').removeAttribute('disabled');
+			console.log('Connection successful.')
+		};
+
+		// Connection closed.
+		socket.onclose = function () {
+			_status = 'SOCKET_CLOSED';
+			console.log('Connection closed.')
+			kinectStatus.textContent = 'Connection closed.'
+		}
+
+		socket.onmessage = function (evt) {
+
+			var msg = JSON.parse(evt.data);
+
+			if (msg.pointcloud) {
+				getPointCloud(msg.pointcloud);
+
+			} else {
+				playSkeleton(msg.skeletons);
+			}
+		}
+	}
+	
+	function getPointCloud(pointCloudData) {
+		// Bringing arrays of 5000 vectors from WebSockets
+
+		var pcInc = 5000;
+
+		if (pointCloudData.status === 'ready') {
+
+			socket.send('POINT_CLOUD_RANGE:' + pointCloudRange + ':' + pcInc);
+
+			pointCloudRange += pcInc;
+
+		} else if (pointCloudData.data) {
+
+			renderPointCloud(pointCloudData.data);
+
+			if (pointCloudRange + pcInc < pointCloudData.length) {
+				socket.send('POINT_CLOUD_RANGE:' + pointCloudRange + ':' + pcInc)
+				pointCloudRange += pcInc;
+
+			} else {
+				socket.send('POINT_CLOUD_RANGE:' + pointCloudRange + ':' + pointCloudData.length - pointCloudRange)
+			}
+		}
+	}
+	
+	function playSkeleton(skeletonData) {
+
+		var i = 0,
+			il = skeletonData.length;
+
+		for (; i < il; i += 1) {
+
+			var k = 0,
+				children = skeletons.children[i].children,
+				kl = children.length;
+
+			for (; k < kl; k += 1) {
+
+				var thisJoint = children[k],
+					jointData = skeletonData[i][thisJoint.name],
+					position = jointData.Position,
+					quaternion = jointData.BoneOrientations.AbsoluteRotation.Quaternion;
+
+				thisJoint.position.x = position.x * inc;
+				thisJoint.position.y = position.y * inc;
+				thisJoint.position.z = position.z * inc;
+
+				thisJoint.quaternion.x = quaternion.x;
+				thisJoint.quaternion.y = quaternion.y;
+				thisJoint.quaternion.z = quaternion.z;
+				thisJoint.quaternion.w = quaternion.w;
+			}
+		}
+	}
+	
+	var t = 30;
+	function playbackSkeleton() {
+
+		t += 1;
+
+		if (skeletonRecord[t]) {
+			
+			var i = 0,
+				frame = skeletonRecord[t],
+				il = frame.length;
+
+			for (; i < il; i += 1) {
+				
+				var thisJoint = skeletons.children[0].children[i],
+					data = frame[i];
+				
+				thisJoint.position.x = data[0];
+				thisJoint.position.y = data[1];
+				thisJoint.position.z = data[2];
+
+				thisJoint.quaternion.x = data[3];
+				thisJoint.quaternion.y = data[4];
+				thisJoint.quaternion.z = data[5];
+				thisJoint.quaternion.w = data[6];
+			}
+				
+		} else {
+			
+			t = 30;
+			playback = false;
+			return;
+		}
+	}
+	
+	function animate() {
+		
+		requestAnimationFrame(animate);
+		render();
+		stats.update();
+		
+		if (controls.enabled) {
+			controls.update();
+		}
+		
+		if (playback) {
+			playbackSkeleton();;
+		}
+	}
+	
+	function render() {
+		renderer.render(scene, camera);
+	}
+	
+	window.onload = function () {
+		interface();
+		hidePanel();
+		loadDemos();
+		startDemos();
+	}
+	
+	function loadDemos(){
+		
+		var doc = document;
+		doc.getElementById('demoPointCloud').className = 'loading';
+		var s = doc.createElement('script');
+		s.type = 'text/javascript';
+		s.async = true;
+		s.src = 'js/skeletonRecord.js';
+		var x = doc.getElementsByTagName('script')[0];
+		x.parentNode.insertBefore(s, x);
+		doc.getElementById('demoSkeleton').disabled = false;
+		
+		var s = doc.createElement('script');
+		s.type = 'text/javascript';
+		s.async = true;
+		s.src = 'js/pointCloudRecord.js';
+		var x = doc.getElementsByTagName('script')[0];
+		x.parentNode.insertBefore(s, x);
+		doc.getElementById('demoPointCloud').disabled = false;
+		doc.getElementById('demoPointCloud').className = '';
+	}
+
+	function hidePanel() {
+
+		var hide = document.getElementById('hide'),
+			optionsPanel = document.getElementById('options');
+			
+		hide.onmousedown = function () {
+ 
+			var slide = hide.textContent === 'Hide' ? 'Hide' : 'Show'
+
+			optionsPanel.addEventListener('webkitAnimationEnd', function () {
+				hide.textContent = slide === 'Hide' ? 'Show' : 'Hide'
+			}, false);
+
+			optionsPanel.addEventListener('animationend', function () {
+				hide.textContent = slide === 'Hide' ? 'Show' : 'Hide'
+			}, false);
+
+			optionsPanel.addEventListener('MSAnimationEnd', function () {
+				hide.textContent = slide === 'Hide' ? 'Show' : 'Hide'
+			}, false);
+
+			optionsPanel.style.webkitAnimation = slide + ' 1s ease-out 0s both';
+			optionsPanel.style.MozAnimation = slide + ' 1s ease-out 0s both';
+			optionsPanel.style.MsAnimation = slide + ' 1s ease-out 0s both';
+
+		}
+	}
+
+	function startDemos() {
+		
+		document.getElementById('demoPointCloud').onmousedown = function () {
+			
+			if (pointcloud) {
+				scene.remove(pointcloud);
+			}
+			renderFromFile();
+		}
+
+		document.getElementById('demoSkeleton').onmousedown = function () {
+			
+			if (pointcloud) {
+				scene.remove(pointcloud);
+			}
+			playback = true;
+		}
+	}
+
+	function interface() {
+
+		document.getElementById('pointColud').onclick = function () {
+
+			console.log('POINT_CLOUD_REQUEST');
+			pointCloudRange = 0;
+
+			if (_status === 'SOCKET_CLOSED') {
+				return;
+			}
+
+			if (pointcloud) {
+				scene.remove(pointcloud);
+			}
+
+			socket.send('POINT_CLOUD_REQUEST');
+		}
+
+		document.getElementById('skeleton').onclick = function () {
+
+			console.log('SKELETON_REQUEST')
+
+			if (_status === 'SOCKET_OPEN') {
+				socket.send('SKELETON_REQUEST');
+			}
+		}
+	}
+
+
+</script>
+
+
+
+
+</body>
+</html>
