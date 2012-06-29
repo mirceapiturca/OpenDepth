@@ -5,6 +5,7 @@ OpenDepth is a client server application that brings Kinect SDK methods and data
 The server is built on top of Kinect SDK 1.5, the client is a written in JavaScript and uses the briliant Three.js webGL rendering engine.
 
 Features:
+=========
 Skeleton Tracking
 Live stream multiple skeletons joints position data (X,Y,Z) including quaternion joint rotation.
 
