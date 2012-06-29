@@ -3,7 +3,7 @@ OpenDepth—Extending the Web
 
 OpenDepth is a client server application that brings Kinect SDK methods and data to the web.
 <p>The server is written on C# and built on top of Kinect SDK 1.5,</p>
-The client is a written in JavaScript and uses the briliant <a href="https://github.com/mrdoob/three.js/">Three.js</a>webGL rendering engine.
+The client is a written in JavaScript and uses the briliant <a href="https://github.com/mrdoob/three.js/">Three.js</a> webGL rendering engine.
 
 ## Features: ##
 ### Skeleton Tracking ###
