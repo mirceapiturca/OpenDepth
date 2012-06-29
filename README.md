@@ -21,7 +21,7 @@ When the server and client are connected a "Connection successful." message will
 ## Requirements: ##
 + Windows 7
 + Kinect SDK
-+ Modern browser that supports webGL and WebSockets
++ Modern browser that supports webGL and WebSockets.
 There are 2 prerecorded demos that you can run without without a Kinect on any OS
 
 ## Cool things to come: ##
@@ -35,3 +35,7 @@ There are 2 prerecorded demos that you can run without without a Kinect on any O
 
 ## About: ##
 This code is part of a 24 hours hackatlon. We cut many corners and neglect proper testion. The server will also be relised as an open source once we clean it up.
+Made with pride by <a href="https://twitter.com/KatePfau">Ecaterina Paun</a>,
+                     <a href="https://twitter.com/alpenzoo">Narcis Paun</a> and 
+                     <a href="https://twitter.com/mirceadesign">Mircea Piturca</a>. 
+                     Follow the development on <a href="https://twitter.com/odepth">Twitter</a>. 
