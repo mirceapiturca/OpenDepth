@@ -318,33 +318,42 @@
 		console.log('Connecting to server...')
 
 		// Initialize a new web socket.
-		socket = new WebSocket("ws://localhost:8181/");
-
-		// Connection established.
-		socket.onopen = function () {
-			_status = 'SOCKET_OPEN';
-			kinectStatus.textContent = 'Connection successful.'
-			document.getElementById('pointColud').removeAttribute('disabled');
-			document.getElementById('skeleton').removeAttribute('disabled');
-			console.log('Connection successful.')
-		};
-
-		// Connection closed.
-		socket.onclose = function () {
-			_status = 'SOCKET_CLOSED';
-			console.log('Connection closed.')
-			kinectStatus.textContent = 'Connection closed.'
+		// socket = new WebSocket("ws://localhost:8181/");
+		try {
+		 socket = new WebSocket("ws://localhost:8181/");
+		} catch (err) {
+			socket === null;
+			console.log('Kinect not connected')
 		}
+	
+		if (socket != null) {
 
-		socket.onmessage = function (evt) {
-
-			var msg = JSON.parse(evt.data);
-
-			if (msg.pointcloud) {
-				getPointCloud(msg.pointcloud);
-
-			} else {
-				playSkeleton(msg.skeletons);
+			// Connection established.
+			socket.onopen = function () {
+				_status = 'SOCKET_OPEN';
+				kinectStatus.textContent = 'Connection successful.'
+				document.getElementById('pointColud').removeAttribute('disabled');
+				document.getElementById('skeleton').removeAttribute('disabled');
+				console.log('Connection successful.')
+			};
+	
+			// Connection closed.
+			socket.onclose = function () {
+				_status = 'SOCKET_CLOSED';
+				console.log('Connection closed.')
+				kinectStatus.textContent = 'Connection closed.'
+			}
+	
+			socket.onmessage = function (evt) {
+	
+				var msg = JSON.parse(evt.data);
+	
+				if (msg.pointcloud) {
+					getPointCloud(msg.pointcloud);
+	
+				} else {
+					playSkeleton(msg.skeletons);
+				}
 			}
 		}
 	}
