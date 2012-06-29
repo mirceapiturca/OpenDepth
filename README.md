@@ -15,8 +15,8 @@ RGBDepth data for a 640X480 rezolution "snapshot" taken with Kinect. 307200 vect
 
 ## Instalation: ##
 + Download anf install Kinect SDK from http://www.microsoft.com/en-us/kinectforwindows/develop/developer-downloads.aspx. Make sure that your Kinecct camera is installed properly by running one of the SDK demos 
-+ Run OpenDepth.exe from build/server
-+ Open index.html from build/client into a modern browser
++ Run OpenDepth.exe from /server
++ Open index.html into a modern browser
 When the server and client are connected a "Connection successful." message will appear on console.
 
 ## Requirements: ##
